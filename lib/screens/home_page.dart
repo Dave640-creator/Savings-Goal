@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
+import 'dart:convert';
 import '../core/app_theme.dart';
 import '../services/app_state.dart';
 import '../models/goal_model.dart';
@@ -525,6 +526,20 @@ class _GoalPreviewTile extends StatelessWidget {
             ? AppTheme.primary
             : AppTheme.success;
 
+    Widget imageWidget;
+    if (goal.imageData != null) {
+      try {
+        imageWidget = CircleAvatar(
+          radius: 22,
+          backgroundImage: MemoryImage(base64Decode(goal.imageData!)),
+        );
+      } catch (e) {
+        imageWidget = Text(goal.emoji, style: const TextStyle(fontSize: 22));
+      }
+    } else {
+      imageWidget = Text(goal.emoji, style: const TextStyle(fontSize: 22));
+    }
+
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(16),
@@ -542,7 +557,7 @@ class _GoalPreviewTile extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text(goal.emoji, style: const TextStyle(fontSize: 22)),
+              imageWidget,
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
