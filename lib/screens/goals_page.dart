@@ -1,8 +1,11 @@
-// lib/screens/goals_page.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:image_picker/image_picker.dart';
+import 'package:image/image.dart' as img_lib;
 import '../core/app_theme.dart';
 import '../models/goal_model.dart';
 import '../services/app_state.dart';
@@ -230,6 +233,20 @@ class _GoalCard extends StatelessWidget {
             ? AppTheme.primary
             : AppTheme.success;
 
+    Widget? imageWidget;
+    if (goal.imageData != null) {
+      try {
+        imageWidget = CircleAvatar(
+          radius: 26,
+          backgroundImage: MemoryImage(base64Decode(goal.imageData!)),
+        );
+      } catch (e) {
+        imageWidget = Text(goal.emoji, style: const TextStyle(fontSize: 26));
+      }
+    } else {
+      imageWidget = Text(goal.emoji, style: const TextStyle(fontSize: 26));
+    }
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
@@ -249,7 +266,7 @@ class _GoalCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Text(goal.emoji, style: const TextStyle(fontSize: 26)),
+                imageWidget,
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -420,10 +437,11 @@ class _EmptyGoals extends StatelessWidget {
                     fontWeight: FontWeight.w800,
                     color: AppTheme.textPrimary)),
             const SizedBox(height: 8),
-            const Text(
+            Text(
                 'Set a goal with a deadline and we\'ll tell you how much to save every month.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: AppTheme.textSecondary, fontSize: 14)),
+                style: const TextStyle(
+                    color: AppTheme.textSecondary, fontSize: 14)),
             const SizedBox(height: 24),
             ElevatedButton.icon(
               onPressed: onAdd,
@@ -456,7 +474,9 @@ class _GoalFormSheetState extends State<_GoalFormSheet> {
   String _emoji = '🎯';
   String _category = 'General';
   DateTime _targetDate = DateTime.now().add(const Duration(days: 365));
+  Uint8List? _imageData; // base64 decoded bytes for preview
 
+  final ImagePicker _picker = ImagePicker();
   final List<String> _categories = [
     'General',
     'Electronics',
@@ -493,6 +513,9 @@ class _GoalFormSheetState extends State<_GoalFormSheet> {
       _emoji = g.emoji;
       _category = g.category;
       _targetDate = g.targetDate;
+      if (g.imageData != null) {
+        _imageData = base64Decode(g.imageData!);
+      }
     }
   }
 
@@ -511,6 +534,30 @@ class _GoalFormSheetState extends State<_GoalFormSheet> {
         .clamp(0, 999);
   }
 
+  int get _daysLeft {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final targetDay =
+        DateTime(_targetDate.year, _targetDate.month, _targetDate.day);
+    if (targetDay.isBefore(today)) return 0;
+    return targetDay.difference(today).inDays;
+  }
+
+  double get _dailyNeeded {
+    final target = double.tryParse(_targetCtrl.text) ?? 0;
+    final saved = double.tryParse(_savedCtrl.text) ?? 0;
+    final remaining = (target - saved).clamp(0.0, double.infinity);
+    final days = _daysLeft;
+    if (days <= 0) return 0;
+    return remaining / days;
+  }
+
+  double get _weeklyNeeded {
+    final days = _daysLeft;
+    if (days <= 0) return _dailyNeeded * 7;
+    return _dailyNeeded * 7;
+  }
+
   double get _monthlyNeeded {
     final target = double.tryParse(_targetCtrl.text) ?? 0;
     final saved = double.tryParse(_savedCtrl.text) ?? 0;
@@ -518,6 +565,39 @@ class _GoalFormSheetState extends State<_GoalFormSheet> {
     final months = _monthsLeft;
     if (months <= 0) return remaining;
     return remaining / months;
+  }
+
+  Future<void> _pickImage() async {
+    try {
+      final XFile? picked =
+          await _picker.pickImage(source: ImageSource.gallery);
+      if (picked != null) {
+        final bytes = await picked.readAsBytes();
+        final image = img_lib.decodeImage(bytes);
+        if (image != null) {
+          // Resize to thumbnail
+          final thumb = img_lib.copyResize(image, width: 200, height: 200);
+          final jpeg = img_lib.encodeJpg(thumb, quality: 85);
+          setState(() {
+            _imageData = Uint8List.fromList(jpeg);
+          });
+        }
+      }
+    } catch (e) {
+      // Handle error silently or show snackbar
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to pick image')),
+      );
+    }
+  }
+
+  String? get _imageDataBase64 =>
+      _imageData != null ? base64Encode(_imageData!) : null;
+
+  void _setPresetYears(int years) {
+    setState(() {
+      _targetDate = DateTime.now().add(Duration(days: years * 365));
+    });
   }
 
   void _submit() {
@@ -533,6 +613,7 @@ class _GoalFormSheetState extends State<_GoalFormSheet> {
       startDate: isEdit ? widget.existing!.startDate : DateTime.now(),
       targetDate: _targetDate,
       category: _category,
+      imageData: _imageDataBase64, // New
     );
 
     if (isEdit) {
@@ -580,7 +661,50 @@ class _GoalFormSheetState extends State<_GoalFormSheet> {
                   color: AppTheme.textPrimary),
             ),
             const SizedBox(height: 16),
-            // Emoji picker
+            // Image picker
+            GestureDetector(
+              onTap: _pickImage,
+              child: Container(
+                height: 100,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: _imageData != null
+                        ? AppTheme.primary
+                        : AppTheme.divider,
+                    width: _imageData != null ? 2 : 1,
+                  ),
+                ),
+                child: _imageData != null
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: Image.memory(
+                          _imageData!,
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          height: double.infinity,
+                        ),
+                      )
+                    : Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.image_outlined,
+                              size: 40, color: AppTheme.textSecondary),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Tap to add photo',
+                            style: TextStyle(
+                              color: AppTheme.textSecondary,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            // Emoji picker (smaller now)
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -590,8 +714,8 @@ class _GoalFormSheetState extends State<_GoalFormSheet> {
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 150),
                       margin: const EdgeInsets.only(right: 8),
-                      width: 44,
-                      height: 44,
+                      width: 36,
+                      height: 36,
                       decoration: BoxDecoration(
                         color: _emoji == e
                             ? AppTheme.primary.withOpacity(0.12)
@@ -604,7 +728,7 @@ class _GoalFormSheetState extends State<_GoalFormSheet> {
                             width: 2),
                       ),
                       child: Center(
-                          child: Text(e, style: const TextStyle(fontSize: 20))),
+                          child: Text(e, style: const TextStyle(fontSize: 16))),
                     ),
                   );
                 }).toList(),
@@ -651,7 +775,7 @@ class _GoalFormSheetState extends State<_GoalFormSheet> {
               onChanged: (v) => setState(() => _category = v!),
             ),
             const SizedBox(height: 12),
-            // Target date
+            // Target date picker
             GestureDetector(
               onTap: () async {
                 final picked = await showDatePicker(
@@ -690,7 +814,7 @@ class _GoalFormSheetState extends State<_GoalFormSheet> {
                     ),
                     const Spacer(),
                     Text(
-                      '$_monthsLeft months',
+                      '${_daysLeft}d ($_monthsLeft mo)',
                       style: const TextStyle(
                           color: AppTheme.primary, fontSize: 12),
                     ),
@@ -698,30 +822,94 @@ class _GoalFormSheetState extends State<_GoalFormSheet> {
                 ),
               ),
             ),
-            // Monthly needed preview
-            if ((_monthlyNeeded > 0) && _targetCtrl.text.isNotEmpty)
+            // Preset buttons
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextButton.icon(
+                    onPressed: () => _setPresetYears(1),
+                    icon: const Icon(Icons.schedule_rounded, size: 16),
+                    label: const Text('1 Year'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextButton.icon(
+                    onPressed: () => _setPresetYears(2),
+                    icon: const Icon(Icons.schedule_rounded, size: 16),
+                    label: const Text('2 Years'),
+                  ),
+                ),
+              ],
+            ),
+            // Targets preview
+            if (_targetCtrl.text.isNotEmpty && (_dailyNeeded > 0))
               Padding(
-                padding: const EdgeInsets.only(top: 10),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primary.withOpacity(0.07),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.info_outline_rounded,
-                          color: AppTheme.primary, size: 18),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Save ₱${fmt.format(_monthlyNeeded)}/month to reach your goal on time.',
-                        style: const TextStyle(
-                            color: AppTheme.primary,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13),
+                padding: const EdgeInsets.only(top: 12),
+                child: Column(
+                  children: [
+                    // Monthly
+                    if (_monthlyNeeded > 0)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primary.withOpacity(0.07),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.calendar_month_rounded,
+                                  color: AppTheme.primary, size: 18),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Monthly: ₱${fmt.format(_monthlyNeeded)} needed',
+                                style: const TextStyle(
+                                    color: AppTheme.primary,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                    ],
-                  ),
+                    // Daily/Weekly
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppTheme.success.withOpacity(0.07),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.trending_up_rounded,
+                              color: AppTheme.success, size: 18),
+                          const SizedBox(width: 8),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Daily: ₱${fmt.format(_dailyNeeded)}',
+                                style: TextStyle(
+                                    color: AppTheme.success,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13),
+                              ),
+                              Text(
+                                'Weekly: ₱${fmt.format(_weeklyNeeded)}',
+                                style: TextStyle(
+                                    color: AppTheme.success,
+                                    fontWeight: FontWeight.w500,
+                                    fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
             const SizedBox(height: 20),

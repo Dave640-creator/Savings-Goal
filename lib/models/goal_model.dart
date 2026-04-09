@@ -10,6 +10,7 @@ class Goal {
   DateTime startDate;
   DateTime targetDate;
   String category;
+  String? imageData; // base64 encoded JPEG thumbnail
 
   Goal({
     required this.id,
@@ -20,6 +21,7 @@ class Goal {
     required this.startDate,
     required this.targetDate,
     this.category = 'General',
+    this.imageData,
   });
 
   double get progressPercent => (savedAmount / targetAmount).clamp(0.0, 1.0);
@@ -36,10 +38,31 @@ class Goal {
         .clamp(0, 999);
   }
 
+  int get daysRemaining {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final targetDay =
+        DateTime(targetDate.year, targetDate.month, targetDate.day);
+    if (targetDay.isBefore(today)) return 0;
+    return targetDay.difference(today).inDays;
+  }
+
   double get monthlyTarget {
     final months = monthsRemaining;
     if (months <= 0) return remaining;
     return remaining / months;
+  }
+
+  double get weeklyTarget {
+    final days = daysRemaining;
+    if (days <= 0) return remaining / 4.345; // avg weeks in month
+    return remaining / (days / 7.0);
+  }
+
+  double get dailyTarget {
+    final days = daysRemaining;
+    if (days <= 0) return remaining / 30.437; // avg days in month
+    return remaining / days;
   }
 
   int get totalMonths {
@@ -65,6 +88,7 @@ class Goal {
         'startDate': startDate.toIso8601String(),
         'targetDate': targetDate.toIso8601String(),
         'category': category,
+        if (imageData != null) 'imageData': imageData,
       };
 
   factory Goal.fromMap(Map<String, dynamic> map) => Goal(
@@ -76,6 +100,7 @@ class Goal {
         startDate: DateTime.parse(map['startDate']),
         targetDate: DateTime.parse(map['targetDate']),
         category: map['category'] ?? 'General',
+        imageData: map['imageData'],
       );
 
   String toJson() => jsonEncode(toMap());
