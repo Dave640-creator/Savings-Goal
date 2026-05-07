@@ -4,12 +4,10 @@ import '../core/app_theme.dart';
 import '../models/transaction_model.dart';
 import 'package:intl/intl.dart';
 import '../services/app_state.dart';
-import 'achievement_splash.dart';
 
 void showAddTransactionSheet(BuildContext context,
     {double? prefillAmount,
-    TransactionType prefillType = TransactionType.income,
-    String? goalId}) {
+    TransactionType prefillType = TransactionType.income}) {
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
@@ -17,7 +15,6 @@ void showAddTransactionSheet(BuildContext context,
     builder: (_) => AddTransactionSheet(
       prefillAmount: prefillAmount,
       prefillType: prefillType,
-      goalId: goalId,
     ),
   );
 }
@@ -25,13 +22,11 @@ void showAddTransactionSheet(BuildContext context,
 class AddTransactionSheet extends StatefulWidget {
   final double? prefillAmount;
   final TransactionType prefillType;
-  final String? goalId;
 
   const AddTransactionSheet({
     super.key,
     this.prefillAmount,
     this.prefillType = TransactionType.income,
-    this.goalId,
   });
 
   @override
@@ -43,8 +38,6 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
   final _descCtrl = TextEditingController();
   String? _selectedGoalId;
   late TransactionType _type;
-  String? _amountError;
-  bool _isSubmitting = false;
 
   @override
   void initState() {
@@ -52,10 +45,6 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
     _type = widget.prefillType;
     if (widget.prefillAmount != null) {
       _amountCtrl.text = widget.prefillAmount!.toStringAsFixed(0);
-    }
-    // Pre-select goal if goalId is provided
-    if (widget.goalId != null) {
-      _selectedGoalId = widget.goalId;
     }
   }
 
@@ -66,163 +55,99 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
     super.dispose();
   }
 
-  String? _validateAmount(String? value) {
-    if (value == null || value.trim().isEmpty) {
-      return "Amount is required";
-    }
-    final amount = double.tryParse(value);
-    if (amount == null || amount <= 0) {
-      return "Amount must be greater than 0";
-    }
-
-    // Check if goal is selected and validate against remaining amount
-    if (_selectedGoalId != null) {
-      final goal = context.read<AppState>().goals.firstWhere(
-            (g) => g.id == _selectedGoalId!,
-            orElse: () => throw Exception("Goal not found"),
-          );
-
-      if (_type == TransactionType.income) {
-        final remaining = goal.remaining;
-        if (amount > remaining) {
-          return "Cannot exceed remaining amount (₱${remaining.toStringAsFixed(0)})";
-        }
-      } else if (_type == TransactionType.withdraw) {
-        if (amount > goal.savedAmount) {
-          return "Cannot withdraw more than saved amount (₱${goal.savedAmount.toStringAsFixed(0)})";
-        }
-      }
-    }
-
-    return null;
-  }
-
   Future<void> _submit(AppState state) async {
-    if (_isSubmitting) return;
-    _isSubmitting = true;
-    try {
-      final amount = double.tryParse(_amountCtrl.text);
+    final amount = double.tryParse(_amountCtrl.text);
+    if (amount == null || amount <= 0 || _selectedGoalId == null) return;
 
-      // Validate amount
-      final error = _validateAmount(_amountCtrl.text);
-      if (error != null) {
-        setState(() => _amountError = error);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(error),
-            backgroundColor: AppTheme.danger,
-          ),
-        );
-        return;
-      }
+    final success = await state.addTransaction(
+      goalId: _selectedGoalId!,
+      description: _descCtrl.text.isEmpty ? 'Transaction' : _descCtrl.text,
+      amount: amount,
+      type: _type,
+    );
 
-      if (_selectedGoalId == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please select a goal')),
-        );
-        return;
-      }
+    if (!mounted) return;
+    Navigator.pop(context);
 
-      // ✅ Safe get goal
-      final goal = state.goals.firstWhere(
-        (g) => g.id == _selectedGoalId!,
-        orElse: () => throw Exception("Goal not found"),
-      );
+    await Future.delayed(const Duration(milliseconds: 100));
 
-      final success = await state.addTransaction(
-        goalId: _selectedGoalId!,
-        description: _descCtrl.text.isEmpty ? 'Transaction' : _descCtrl.text,
-        amount: amount!,
-        type: _type,
-      );
+    final goal = state.goals.firstWhere((g) => g.id == _selectedGoalId!);
 
+    if (success && goal.isCompleted) {
+      final timeTaken = await state.markGoalCompleted(goal.id);
       if (!mounted) return;
-      Navigator.pop(context);
-
-      await Future.delayed(const Duration(milliseconds: 100));
-
-      final updatedGoal = state.goals.firstWhere(
-        (g) => g.id == _selectedGoalId!,
-        orElse: () => goal,
-      );
-
-      // 🎉 Goal completed - show achievement splash
-      if (success && updatedGoal.isCompleted) {
-        await state.markGoalCompleted(updatedGoal.id);
-        if (!mounted) return;
-
-        // Show achievement splash screen
-        showAchievementSplash(context, updatedGoal);
-        return;
-      }
-
-      // ✅ Feedback with success dialog
-      if (success) {
-        // Show success dialog
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  _type == TransactionType.income
-                      ? Icons.check_circle
-                      : Icons.remove_circle,
-                  color: _type == TransactionType.income
-                      ? AppTheme.success
-                      : AppTheme.danger,
-                  size: 64,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  _type == TransactionType.income
-                      ? 'Deposit Successful!'
-                      : 'Withdrawal Successful!',
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w900,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '₱${amount.toStringAsFixed(0)} ${_type == TransactionType.income ? "added to" : "withdrawn from"} ${goal.name}',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-            actions: [
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _type == TransactionType.income
-                      ? AppTheme.success
-                      : AppTheme.danger,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                onPressed: () => Navigator.pop(context),
-                child: const Text('OK'),
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: Row(
+            children: const [
+              Icon(Icons.celebration, color: Colors.green, size: 32),
+              SizedBox(width: 12),
+              Text(
+                'Goal Achieved!',
+                style: TextStyle(fontWeight: FontWeight.w900),
               ),
             ],
           ),
-        );
-      } else {
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                goal.emoji + ' ' + goal.name,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                '🎉 Congratulations! Goal Achieved!',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'You reached ₱${goal.targetAmount.toStringAsFixed(0)} target in $timeTaken!',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 14, color: Colors.grey),
+              ),
+            ],
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Awesome!'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    if (success) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(_type == TransactionType.income
+              ? '₱${amount.toStringAsFixed(0)} added!'
+              : '₱${amount.toStringAsFixed(0)} withdrawn.'),
+          backgroundColor: _type == TransactionType.income
+              ? AppTheme.success
+              : AppTheme.danger,
+          duration: const Duration(seconds: 2),
+        ));
+      }
+    } else {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Cannot withdraw more than saved or on completed goal'),
           backgroundColor: AppTheme.danger,
         ));
       }
-    } finally {
-      _isSubmitting = false;
     }
   }
 
@@ -259,7 +184,6 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
                     fontWeight: FontWeight.w900,
                     color: Color(0xFF1F2937))),
             const SizedBox(height: 16),
-            // Type toggle
             Container(
               decoration: BoxDecoration(
                 color: const Color(0xFFF8FAFC),
@@ -287,11 +211,10 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
               ),
             ),
             const SizedBox(height: 14),
-            // Goal selector - only show active goals
-            if (state.activeGoals.isEmpty)
+            if (goals.isEmpty)
               const Padding(
                 padding: EdgeInsets.only(bottom: 12),
-                child: Text('No active goals available. Create a goal first!',
+                child: Text('Create a goal first before adding transactions.',
                     style: TextStyle(color: Color(0xFF6B7280))),
               )
             else
@@ -299,10 +222,13 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
                 value: _selectedGoalId,
                 hint: const Text('Select Goal'),
                 decoration: const InputDecoration(labelText: 'Goal'),
-                items: state.activeGoals.map((g) {
+                items: goals.map((g) {
                   final fmt = NumberFormat('#,##0', 'en_PH');
                   final remaining = g.remaining;
-                  final saved = g.savedAmount;
+                  final percent = (g.progressPercent * 100).toStringAsFixed(0);
+                  String subtitle = g.isCompleted
+                      ? 'Done ✓'
+                      : '₱${fmt.format(remaining)} left ($percent%)';
                   return DropdownMenuItem<String>(
                     value: g.id,
                     child: Row(
@@ -311,9 +237,8 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
                         Flexible(child: Text('${g.emoji} ${g.name}')),
                         const Spacer(),
                         Flexible(
-                            child: Text(
-                                '₱${fmt.format(saved)}/₱${fmt.format(remaining)}',
-                                style: const TextStyle(
+                            child: Text(subtitle,
+                                style: TextStyle(
                                     fontSize: 12, color: Color(0xFF6B7280)))),
                       ],
                     ),
@@ -322,21 +247,11 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
                 onChanged: (v) => setState(() => _selectedGoalId = v),
               ),
             const SizedBox(height: 12),
-            TextFormField(
+            TextField(
               controller: _amountCtrl,
               keyboardType: TextInputType.number,
-              onChanged: (value) {
-                // Clear error when user types
-                if (_amountError != null) {
-                  setState(() => _amountError = null);
-                }
-              },
-              decoration: InputDecoration(
-                labelText: 'Amount',
-                prefixText: '₱ ',
-                errorText: _amountError,
-                errorStyle: const TextStyle(color: Colors.red, fontSize: 12),
-              ),
+              decoration:
+                  const InputDecoration(labelText: 'Amount', prefixText: '₱ '),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -348,30 +263,18 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: _isSubmitting
-                    ? null
-                    : (_selectedGoalId != null &&
-                            double.tryParse(_amountCtrl.text) != null
-                        ? () => _submit(state)
-                        : null),
+                onPressed: _selectedGoalId != null &&
+                        double.tryParse(_amountCtrl.text) != null
+                    ? () => _submit(state)
+                    : null,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: _type == TransactionType.income
                       ? AppTheme.success
                       : AppTheme.danger,
                 ),
-                child: _isSubmitting
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor:
-                              AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      )
-                    : Text(_type == TransactionType.income
-                        ? 'Add Savings'
-                        : 'Record Withdrawal'),
+                child: Text(_type == TransactionType.income
+                    ? 'Add Savings'
+                    : 'Record Withdrawal'),
               ),
             ),
           ],

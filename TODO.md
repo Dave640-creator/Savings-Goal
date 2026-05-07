@@ -1,15 +1,21 @@
-# Savings Goal Enhancements TODO
+# SQLite Migration & Performance Optimization TODO
 
-## Approved Plan Implementation Steps
+## Phase 1: DatabaseService (New)
+- [x] 1.1 Created lib/services/database_service.dart with UPSERTs, pagination, monthly SQL agg (minor compile fixes pending)
 
-- [x] **Step 1**: Update `pubspec.yaml` - Add image_picker, path_provider, image dependencies
-- [x] **Step 2**: Run `flutter pub get`
-- [x] **Step 3**: Update `lib/models/goal_model.dart` - Add imageData field (base64), dailyTarget/weeklyTarget getters, update serialization
-- [x] **Step 4**: Update `lib/screens/goals_page.dart` - Add image picker to form, daily/weekly previews, preset buttons (1Y/2Y), image in GoalCard
-- [x] **Step 5**: Update `lib/screens/home_page.dart` - Add image to _GoalPreviewTile
-- [x] **Step 6**: Test add/edit goal with image/presets/breakdowns
-- [x] **Step 7**: Run `flutter analyze` and fix issues (added missing imports, error handling)
-- [x] **Complete**: All features working, data persists, errors fixed
+## Phase 2: StorageService Migration
+- [ ] 2.1 Rewrite storage_service.dart → delegate to DatabaseService
+- [ ] 2.2 Test persistence
 
-App fully functional with image support, charts, transactions. Run `flutter run` to test.
+## Phase 3: AppState Optimization
+- [ ] 3.1 Integrate DatabaseService + caches
+- [ ] 3.2 Migration in init()
+- [ ] 3.3 Optimized methods
 
+## Phase 4: UI Optimizations
+- [ ] 4.1 Paginated transactions
+- [ ] 4.2 RefreshIndicator
+
+## Phase 5: Validation
+- [ ] 5.1 Benchmarks, tests
+- [ ] 5.2 ✅ COMPLETE

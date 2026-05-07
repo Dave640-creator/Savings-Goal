@@ -11,12 +11,16 @@ class AppState extends ChangeNotifier {
 
   List<Goal> _goals = [];
   List<Transaction> _transactions = [];
+  List<Transaction> _deletedTransactions = [];
   String _userName = 'Saver';
   int _streak = 0;
   bool _isLoaded = false;
 
   List<Goal> get goals => _goals;
+  List<Goal> get activeGoals => _goals.where((g) => !g.isCompleted).toList();
+  List<Goal> get completedGoals => _goals.where((g) => g.isCompleted).toList();
   List<Transaction> get transactions => _transactions;
+  List<Transaction> get deletedTransactions => _deletedTransactions;
   String get userName => _userName;
   int get streak => _streak;
   bool get isLoaded => _isLoaded;
@@ -25,16 +29,26 @@ class AppState extends ChangeNotifier {
 
   double get totalTarget => _goals.fold(0.0, (sum, g) => sum + g.targetAmount);
 
-  int get completedGoals => _goals.where((g) => g.isCompleted).length;
+  // Legacy getter for compatibility
+  int get numCompletedGoals => _goals.where((g) => g.isCompleted).length;
 
   Future<void> init() async {
     _goals = await _storage.loadGoals();
     _transactions = await _storage.loadTransactions();
+    _deletedTransactions = await _storage.loadDeletedTransactions();
+    _completedHistory = await _storage.loadCompletedHistory();
+    _deletedHistory = await _storage.loadDeletedHistory();
     _userName = await _storage.loadUserName();
     _streak = await _storage.loadStreak();
     _isLoaded = true;
     notifyListeners();
   }
+
+  List<Map<String, dynamic>> _completedHistory = [];
+  List<Map<String, dynamic>> _deletedHistory = [];
+
+  List<Map<String, dynamic>> get completedHistory => _completedHistory;
+  List<Map<String, dynamic>> get deletedHistory => _deletedHistory;
 
   // ── Goals ──────────────────────────────────────────────
 
@@ -54,22 +68,60 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> deleteGoal(String goalId) async {
+    final goal = _goals.firstWhere((g) => g.id == goalId);
+    _deletedHistory
+        .add(goal.toMap()..['deletedDate'] = DateTime.now().toIso8601String());
     _goals.removeWhere((g) => g.id == goalId);
     _transactions.removeWhere((t) => t.goalId == goalId);
     await _storage.saveGoals(_goals);
     await _storage.saveTransactions(_transactions);
+    await _storage.saveCompletedHistory(completedHistory);
+    await _storage.saveDeletedHistory(deletedHistory);
     notifyListeners();
+  }
+
+  Future<String> markGoalCompleted(String goalId) async {
+    final idx = _goals.indexWhere((g) => g.id == goalId);
+    if (idx != -1) {
+      final goal = _goals[idx];
+      final daysTaken = DateTime.now().difference(goal.startDate).inDays;
+      final monthsTaken = ((DateTime.now().year - goal.startDate.year) * 12) +
+          (DateTime.now().month - goal.startDate.month);
+      final timeTaken =
+          daysTaken > 30 ? '$monthsTaken months' : '$daysTaken days';
+
+      _completedHistory.add(
+          goal.toMap()..['completedDate'] = DateTime.now().toIso8601String());
+      _goals[idx] = Goal(
+          id: goal.id,
+          name: goal.name,
+          emoji: goal.emoji,
+          targetAmount: goal.targetAmount,
+          savedAmount: goal.targetAmount,
+          startDate: goal.startDate,
+          targetDate: goal.targetDate,
+          category: goal.category,
+          imageData: goal.imageData);
+      await _storage.saveGoals(_goals);
+      await _storage.saveCompletedHistory(completedHistory);
+      notifyListeners();
+      return timeTaken;
+    }
+    return '';
   }
 
   // ── Transactions ───────────────────────────────────────
 
-  Future<void> addTransaction({
+  Future<bool> addTransaction({
     required String goalId,
     required String description,
     required double amount,
     required TransactionType type,
   }) async {
     final goal = _goals.firstWhere((g) => g.id == goalId);
+    if (goal.isCompleted) return false; // No tx on completed
+    if (type == TransactionType.withdraw && amount > goal.savedAmount)
+      return false;
 
     final tx = Transaction(
       id: _uuid.v4(),
@@ -81,12 +133,13 @@ class AppState extends ChangeNotifier {
       date: DateTime.now(),
     );
 
-    // Update goal's saved amount
     if (type == TransactionType.income) {
       goal.savedAmount += amount;
+      if (goal.savedAmount >= goal.targetAmount && !goal.isCompleted) {
+        await markGoalCompleted(goal.id);
+      }
     } else {
-      goal.savedAmount =
-          (goal.savedAmount - amount).clamp(0.0, double.infinity);
+      goal.savedAmount -= amount;
     }
 
     _transactions.insert(0, tx);
@@ -95,6 +148,7 @@ class AppState extends ChangeNotifier {
     await _storage.updateStreak();
     _streak = await _storage.loadStreak();
     notifyListeners();
+    return true;
   }
 
   Future<void> deleteTransaction(String txId) async {
@@ -116,9 +170,31 @@ class AppState extends ChangeNotifier {
       }
     }
 
+    // Move to deleted
+    final txMap = tx.toMap()
+      ..['deletedDate'] = DateTime.now().toIso8601String();
+    _deletedTransactions.add(Transaction.fromMap(txMap));
+
     _transactions.removeWhere((t) => t.id == txId);
     await _storage.saveGoals(_goals);
     await _storage.saveTransactions(_transactions);
+    await _storage.saveDeletedTransactions(_deletedTransactions);
+    notifyListeners();
+  }
+
+  Future<void> clearAllTransactions() async {
+    if (_transactions.isEmpty) return;
+
+    // Move all to deleted with timestamp
+    for (final tx in _transactions) {
+      final txMap = tx.toMap()
+        ..['deletedDate'] = DateTime.now().toIso8601String();
+      _deletedTransactions.add(Transaction.fromMap(txMap));
+    }
+
+    _transactions.clear();
+    await _storage.saveTransactions(_transactions);
+    await _storage.saveDeletedTransactions(_deletedTransactions);
     notifyListeners();
   }
 

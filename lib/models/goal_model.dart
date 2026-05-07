@@ -1,5 +1,5 @@
-// lib/models/goal_model.dart
 import 'dart:convert';
+import 'package:intl/intl.dart';
 
 class Goal {
   final String id;
@@ -24,12 +24,15 @@ class Goal {
     this.imageData,
   });
 
-  double get progressPercent => (savedAmount / targetAmount).clamp(0.0, 1.0);
+  // ✅ FIXED: guard against targetAmount = 0 (NaN)
+  double get progressPercent =>
+      targetAmount <= 0 ? 0.0 : (savedAmount / targetAmount).clamp(0.0, 1.0);
 
   double get remaining =>
       (targetAmount - savedAmount).clamp(0.0, double.infinity);
 
-  bool get isCompleted => savedAmount >= targetAmount;
+  // ✅ FIXED: guard against targetAmount = 0 (always-true bug)
+  bool get isCompleted => targetAmount > 0 && savedAmount >= targetAmount;
 
   int get monthsRemaining {
     final now = DateTime.now();
@@ -53,15 +56,18 @@ class Goal {
     return remaining / months;
   }
 
+  // ✅ FIXED: guard against weeks < 1 to avoid inflated amount
   double get weeklyTarget {
     final days = daysRemaining;
-    if (days <= 0) return remaining / 4.345; // avg weeks in month
-    return remaining / (days / 7.0);
+    if (days <= 0) return remaining / 4.345;
+    final weeks = days / 7.0;
+    if (weeks < 1) return remaining; // less than 1 week na, bayaran na lahat
+    return remaining / weeks;
   }
 
   double get dailyTarget {
     final days = daysRemaining;
-    if (days <= 0) return remaining / 30.437; // avg days in month
+    if (days <= 0) return remaining / 30.437;
     return remaining / days;
   }
 
@@ -79,6 +85,21 @@ class Goal {
     return '$months months left';
   }
 
+  /// Smart target based on time remaining
+  String get smartTargetLabel {
+    final days = daysRemaining;
+    final fmt = NumberFormat('#,##0', 'en_PH');
+
+    if (days <= 0) return 'Target reached or overdue';
+    if (days < 30) {
+      return '₱${fmt.format(dailyTarget)}/day needed';
+    } else if (days < 90) {
+      return '₱${fmt.format(weeklyTarget)}/week needed';
+    } else {
+      return '₱${fmt.format(monthlyTarget)}/month needed';
+    }
+  }
+
   Map<String, dynamic> toMap() => {
         'id': id,
         'name': name,
@@ -92,15 +113,15 @@ class Goal {
       };
 
   factory Goal.fromMap(Map<String, dynamic> map) => Goal(
-        id: map['id'],
-        name: map['name'],
+        id: map['id'] as String,
+        name: map['name'] as String,
         emoji: map['emoji'] ?? '🎯',
-        targetAmount: map['targetAmount'],
-        savedAmount: map['savedAmount'],
-        startDate: DateTime.parse(map['startDate']),
-        targetDate: DateTime.parse(map['targetDate']),
+        targetAmount: (map['targetAmount'] as num).toDouble(),
+        savedAmount: (map['savedAmount'] as num).toDouble(),
+        startDate: DateTime.parse(map['startDate'] as String),
+        targetDate: DateTime.parse(map['targetDate'] as String),
         category: map['category'] ?? 'General',
-        imageData: map['imageData'],
+        imageData: map['imageData'] as String?,
       );
 
   String toJson() => jsonEncode(toMap());

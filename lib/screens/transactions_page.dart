@@ -10,6 +10,46 @@ import '../widgets/add_transaction_sheet.dart';
 class TransactionsPage extends StatelessWidget {
   const TransactionsPage({super.key});
 
+  static void _showClearAllDialog(BuildContext context) {
+    final state = Provider.of<AppState>(context, listen: false);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clear All Transactions'),
+        content: Text(
+            'This will move all ${state.transactions.length} transactions to Deleted History. Goal balances will remain unchanged. Continue?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.danger),
+            onPressed: () {
+              state.clearAllTransactions();
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('All transactions moved to Deleted History'),
+                  backgroundColor: AppTheme.danger,
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            },
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.delete_outline, color: Colors.white, size: 18),
+                const SizedBox(width: 8),
+                const Text('Clear All'),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<AppState>(
@@ -56,44 +96,74 @@ class TransactionsPage extends StatelessWidget {
                 ),
               ),
               Expanded(
-                child: transactions.isEmpty
-                    ? const Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text('💸', style: TextStyle(fontSize: 52)),
-                            SizedBox(height: 12),
-                            Text('No transactions yet',
-                                style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w700,
-                                    color: AppTheme.textPrimary)),
-                            Text('Add one using the button below',
-                                style:
-                                    TextStyle(color: AppTheme.textSecondary)),
-                          ],
-                        ),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
-                        itemCount: transactions.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 8),
-                        itemBuilder: (ctx, i) => _TxTile(
-                          tx: transactions[i],
-                          onDelete: () =>
-                              state.deleteTransaction(transactions[i].id),
-                        ),
-                      ),
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: transactions.isEmpty
+                          ? const Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text('💸', style: TextStyle(fontSize: 52)),
+                                  SizedBox(height: 12),
+                                  Text('No transactions yet',
+                                      style: TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w700,
+                                          color: AppTheme.textPrimary)),
+                                  Text('Add one using the button below',
+                                      style: TextStyle(
+                                          color: AppTheme.textSecondary)),
+                                ],
+                              ),
+                            )
+                          : ListView.separated(
+                              padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                              itemCount: transactions.length,
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(height: 8),
+                              itemBuilder: (ctx, i) => _TxTile(
+                                tx: transactions[i],
+                                onDelete: () =>
+                                    state.deleteTransaction(transactions[i].id),
+                              ),
+                            ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
-          floatingActionButton: FloatingActionButton.extended(
-            onPressed: () => showAddTransactionSheet(context),
-            backgroundColor: AppTheme.primary,
-            icon: const Icon(Icons.add, color: Colors.white),
-            label: const Text('Add Transaction',
-                style: TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.w700)),
+          floatingActionButton: Column(
+            mainAxisAlignment: MainAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 150,
+                child: FloatingActionButton.extended(
+                  heroTag: "add",
+                  onPressed: () => showAddTransactionSheet(context),
+                  backgroundColor: AppTheme.primary,
+                  icon: const Icon(Icons.add, color: Colors.white),
+                  label: const Text('Add Transaction',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w700)),
+                ),
+              ),
+              const SizedBox(height: 6),
+              SizedBox(
+                width: 150,
+                child: FloatingActionButton.extended(
+                  heroTag: "clear",
+                  onPressed: () => _showClearAllDialog(context),
+                  backgroundColor: AppTheme.danger,
+                  icon: const Icon(Icons.delete_forever, color: Colors.white),
+                  label: const Text('Clear All',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w700)),
+                ),
+              ),
+            ],
           ),
         );
       },

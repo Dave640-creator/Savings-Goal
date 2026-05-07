@@ -75,8 +75,22 @@ class StorageService {
       return;
     }
 
-    final last = DateTime.parse(lastRaw);
-    final diff = today.difference(last).inDays;
+    // Parse the date string safely (format: YYYY-MM-DD)
+    final parts = lastRaw.split('-');
+    if (parts.length != 3) {
+      // Invalid format, reset streak
+      await prefs.setInt(_savingStreakKey, 1);
+      await prefs.setString(_lastSaveDateKey, todayStr);
+      return;
+    }
+
+    final last = DateTime(
+      int.parse(parts[0]),
+      int.parse(parts[1]),
+      int.parse(parts[2]),
+    );
+    final todayOnly = DateTime(today.year, today.month, today.day);
+    final diff = todayOnly.difference(last).inDays;
 
     if (diff == 0) return; // Same day, no update
     if (diff == 1) {
@@ -88,6 +102,50 @@ class StorageService {
       await prefs.setInt(_savingStreakKey, 1);
     }
     await prefs.setString(_lastSaveDateKey, todayStr);
+  }
+
+  Future<List<Map<String, dynamic>>> loadCompletedHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('completed_history');
+    if (raw == null) return [];
+    final List decoded = jsonDecode(raw);
+    return List<Map<String, dynamic>>.from(decoded);
+  }
+
+  Future<void> saveCompletedHistory(List<Map<String, dynamic>> history) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('completed_history', jsonEncode(history));
+  }
+
+  Future<List<Map<String, dynamic>>> loadDeletedHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('deleted_history');
+    if (raw == null) return [];
+    final List decoded = jsonDecode(raw);
+    return List<Map<String, dynamic>>.from(decoded);
+  }
+
+  Future<void> saveDeletedHistory(List<Map<String, dynamic>> history) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('deleted_history', jsonEncode(history));
+  }
+
+  // ── Deleted Transactions ──────────────────────────────
+
+  static const _deletedTransactionsKey = 'deleted_transactions_v1';
+
+  Future<List<Transaction>> loadDeletedTransactions() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_deletedTransactionsKey);
+    if (raw == null) return [];
+    final List decoded = jsonDecode(raw);
+    return decoded.map((e) => Transaction.fromMap(e)).toList();
+  }
+
+  Future<void> saveDeletedTransactions(List<Transaction> transactions) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_deletedTransactionsKey,
+        jsonEncode(transactions.map((t) => t.toMap()).toList()));
   }
 
   Future<void> clearAll() async {

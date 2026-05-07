@@ -9,6 +9,7 @@ import '../services/app_state.dart';
 import '../models/goal_model.dart';
 import '../models/transaction_model.dart';
 import '../widgets/add_transaction_sheet.dart';
+import 'goals_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -143,7 +144,8 @@ class _SummaryCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
-                  '${state.completedGoals}/${state.goals.length} goals done',
+                  // ✅ FIXED: .length added — completedGoals is List<Goal> not int
+                  '${state.completedGoals.length}/${state.goals.length} goals done',
                   style: const TextStyle(color: Colors.white, fontSize: 11),
                 ),
               ),
@@ -160,7 +162,6 @@ class _SummaryCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          // Overall progress bar
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -252,6 +253,9 @@ class _QuickSaveSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // ✅ FIXED: use activeGoals — exclude completed goals from quick save
+    final activeGoals = state.activeGoals;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -261,7 +265,7 @@ class _QuickSaveSection extends StatelessWidget {
                 fontWeight: FontWeight.w800,
                 color: AppTheme.textPrimary)),
         const SizedBox(height: 10),
-        if (state.goals.isEmpty)
+        if (activeGoals.isEmpty)
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -281,11 +285,11 @@ class _QuickSaveSection extends StatelessWidget {
                   child: Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: _QuickSaveBtn(
-                        amount: amount, goals: state.goals, state: state),
+                        amount: amount, goals: activeGoals, state: state),
                   ),
                 ),
               Expanded(
-                child: _CustomSaveBtn(goals: state.goals, state: state),
+                child: _CustomSaveBtn(goals: activeGoals, state: state),
               ),
             ],
           ),
@@ -369,6 +373,14 @@ class _SavingsChartCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final data = state.getMonthlySavings();
 
+    // ✅ FIXED: safe maxY — no crash pag empty or lahat zero
+    final maxIncome = data.isEmpty
+        ? 0.0
+        : data
+            .map((d) => d['income'] as double)
+            .reduce((a, b) => a > b ? a : b);
+    final maxY = maxIncome * 1.3 + 100;
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -398,11 +410,7 @@ class _SavingsChartCard extends StatelessWidget {
             child: BarChart(
               BarChartData(
                 alignment: BarChartAlignment.spaceAround,
-                maxY: data
-                            .map((d) => (d['income'] as double))
-                            .fold(0.0, (a, b) => a > b ? a : b) *
-                        1.3 +
-                    100,
+                maxY: maxY,
                 barTouchData: BarTouchData(enabled: false),
                 titlesData: FlTitlesData(
                   bottomTitles: AxisTitles(
@@ -472,8 +480,7 @@ class _ActiveGoalsPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final activeGoals =
-        state.goals.where((g) => !g.isCompleted).take(3).toList();
+    final activeGoals = state.goals.where((g) => !g.isCompleted).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -487,7 +494,10 @@ class _ActiveGoalsPreview extends StatelessWidget {
                     fontWeight: FontWeight.w800,
                     color: AppTheme.textPrimary)),
             TextButton(
-              onPressed: () {},
+              onPressed: () {
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (context) => const GoalsPage()));
+              },
               child: const Text('See all',
                   style: TextStyle(
                       color: AppTheme.primary, fontWeight: FontWeight.w600)),
@@ -507,15 +517,24 @@ class _ActiveGoalsPreview extends StatelessWidget {
                     style: TextStyle(color: AppTheme.textSecondary))),
           )
         else
-          ...activeGoals.map((g) => _GoalPreviewTile(goal: g)),
+          // Vertical list showing all active goals
+          Column(
+            children: activeGoals.map((goal) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _CompactGoalCard(goal: goal),
+              );
+            }).toList(),
+          ),
       ],
     );
   }
 }
 
-class _GoalPreviewTile extends StatelessWidget {
+// Compact goal card for home page preview
+class _CompactGoalCard extends StatelessWidget {
   final Goal goal;
-  const _GoalPreviewTile({required this.goal});
+  const _CompactGoalCard({required this.goal});
 
   @override
   Widget build(BuildContext context) {
@@ -526,85 +545,82 @@ class _GoalPreviewTile extends StatelessWidget {
             ? AppTheme.primary
             : AppTheme.success;
 
+    // Get image or emoji
     Widget imageWidget;
     if (goal.imageData != null) {
       try {
         imageWidget = CircleAvatar(
-          radius: 22,
+          radius: 18,
           backgroundImage: MemoryImage(base64Decode(goal.imageData!)),
         );
-      } catch (e) {
-        imageWidget = Text(goal.emoji, style: const TextStyle(fontSize: 22));
+      } catch (_) {
+        imageWidget = CircleAvatar(
+          radius: 18,
+          backgroundColor: AppTheme.primary.withOpacity(0.1),
+          child: Text(goal.emoji, style: const TextStyle(fontSize: 16)),
+        );
       }
     } else {
-      imageWidget = Text(goal.emoji, style: const TextStyle(fontSize: 22));
+      imageWidget = CircleAvatar(
+        radius: 18,
+        backgroundColor: AppTheme.primary.withOpacity(0.1),
+        child: Text(goal.emoji, style: const TextStyle(fontSize: 16)),
+      );
     }
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(16),
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.divider, width: 1),
         boxShadow: [
           BoxShadow(
               color: Colors.black.withOpacity(0.04),
-              blurRadius: 10,
+              blurRadius: 8,
               offset: const Offset(0, 3)),
         ],
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Row(
             children: [
               imageWidget,
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(goal.name,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 14,
-                            color: AppTheme.textPrimary)),
-                    Text(goal.statusLabel,
-                        style: const TextStyle(
-                            fontSize: 11, color: AppTheme.textSecondary)),
-                  ],
+                child: Text(
+                  goal.name,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                      color: AppTheme.textPrimary),
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-              Text(
-                '₱${fmt.format(goal.monthlyTarget)}/mo',
-                style: const TextStyle(
-                    color: AppTheme.primary,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           ClipRRect(
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(
               value: goal.progressPercent,
               backgroundColor: AppTheme.divider,
               valueColor: AlwaysStoppedAnimation<Color>(progressColor),
-              minHeight: 7,
+              minHeight: 5,
             ),
           ),
-          const SizedBox(height: 6),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('₱${fmt.format(goal.savedAmount)} saved',
-                  style: const TextStyle(
-                      fontSize: 11, color: AppTheme.textSecondary)),
-              Text(
-                  '${(goal.progressPercent * 100).toStringAsFixed(0)}% of ₱${fmt.format(goal.targetAmount)}',
-                  style: const TextStyle(
-                      fontSize: 11, color: AppTheme.textSecondary)),
-            ],
+          const SizedBox(height: 4),
+          Text(
+            '${(goal.progressPercent * 100).toStringAsFixed(0)}% • ₱${fmt.format(goal.savedAmount)}',
+            style: const TextStyle(
+                fontSize: 10,
+                color: AppTheme.textSecondary,
+                fontWeight: FontWeight.w600),
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
